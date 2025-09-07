@@ -17,7 +17,6 @@ pub type BossMessage {
   WorkResult(results: List(Int))
   WorkerFinished
   StartComputation(n: Int, k: Int, reply_with: Subject(BossMessage))
-  BatchComplete(batch_id: Int)
 }
 
 // State types
@@ -27,49 +26,25 @@ pub type BossState {
     workers_completed: Int,
     total_work_units: Int,
     self_subject: Subject(BossMessage),
-    current_batch: Int,
-    total_batches: Int,
-    batch_size: Int,
-    n: Int,
-    k: Int,
-    workers: List(Subject(WorkerMessage)),
   )
 }
 
-// Perfect square detection - optimized with early exit
+// Perfect square detection
 pub fn is_perfect_square(n: Int) -> Bool {
-  case n {
-    x if x < 0 -> False
-    0 -> True
-    1 -> True
-    _ -> {
-      case int.square_root(n) {
-        Ok(root) -> {
-          let root_int = float.round(root)
-          root_int * root_int == n
-        }
-        Error(_) -> False
-      }
+  case int.square_root(n) {
+    Ok(root) -> {
+      let root_int = float.round(root)
+      root_int * root_int == n
     }
+    Error(_) -> False
   }
 }
 
-// Sum of consecutive squares - optimized with direct calculation
+// Sum of consecutive squares
 pub fn sum_of_consecutive_squares(start: Int, k: Int) -> Int {
-  // Use mathematical formula for better performance
-  sum_squares_range(start, start + k - 1)
-}
-
-// Direct calculation of sum of squares in a range - tail recursive
-fn sum_squares_range(start: Int, end: Int) -> Int {
-  sum_squares_range_acc(start, end, 0)
-}
-
-fn sum_squares_range_acc(start: Int, end: Int, acc: Int) -> Int {
-  case start > end {
-    True -> acc
-    False -> sum_squares_range_acc(start + 1, end, acc + start * start)
-  }
+  list.range(start, start + k - 1)
+  |> list.map(fn(x) { x * x })
+  |> list.fold(0, int.add)
 }
 
 // Check if sequence starting at 'start' with length 'k' gives perfect square
@@ -86,7 +61,9 @@ pub fn worker_handler(
   case message {
     WorkRequest(start, end, k, boss) -> {
       // Process the range and find valid sequences
-      let results = find_valid_sequences_in_range(start, end, k, [])
+      let results = 
+        list.range(start, end)
+        |> list.filter(fn(i) { is_valid_sequence(i, k) })
       
       // Send results back to boss
       process.send(boss, WorkResult(results))
@@ -97,19 +74,6 @@ pub fn worker_handler(
   }
 }
 
-// Optimized range processing without intermediate list creation
-fn find_valid_sequences_in_range(start: Int, end: Int, k: Int, acc: List(Int)) -> List(Int) {
-  case start > end {
-    True -> list.reverse(acc)
-    False -> {
-      case is_valid_sequence(start, k) {
-        True -> find_valid_sequences_in_range(start + 1, end, k, [start, ..acc])
-        False -> find_valid_sequences_in_range(start + 1, end, k, acc)
-      }
-    }
-  }
-}
-
 // Boss actor that coordinates work and collects results
 pub fn boss_handler(
   state: BossState,
@@ -117,33 +81,32 @@ pub fn boss_handler(
 ) -> actor.Next(BossState, BossMessage) {
   case message {
     StartComputation(n, k, reply_with) -> {
-      // High parallelism configuration
-      let num_workers = 1500
-      let batch_size = 1500  // Process in batches to manage memory
-      let total_batches = int.max(1, n / batch_size)
+      let num_workers = 8  // Parallel workers
+      let work_unit_size = int.max(100, n / 50)  // Dynamic work unit sizing
       
-      io.println("Starting computation with " <> int.to_string(num_workers) <> " workers")
-      io.println("Processing " <> int.to_string(total_batches) <> " batches of size " <> int.to_string(batch_size))
+      // Create work ranges
+      let work_ranges = create_work_ranges(1, n, work_unit_size)
+      let total_units = list.length(work_ranges)
       
-      // Create all worker actors upfront
-      let workers = create_workers(num_workers)
+      // Start worker actors
+      let workers = list.range(1, num_workers)
+        |> list.map(fn(_) {
+          case actor.new(Nil) |> actor.on_message(worker_handler) |> actor.start {
+            Ok(started_actor) -> Ok(started_actor.data)
+            Error(e) -> Error(e)
+          }
+        })
+        |> result.values  // Keep only successful ones
       
-      let initial_state = BossState(
+      // Distribute work among workers - use the reply_with subject
+      assign_work_to_workers(workers, work_ranges, k, reply_with)
+      
+      actor.continue(BossState(
         all_results: [],
         workers_completed: 0,
-        total_work_units: 0,
+        total_work_units: total_units,
         self_subject: reply_with,
-        current_batch: 1,
-        total_batches: total_batches,
-        batch_size: batch_size,
-        n: n,
-        k: k,
-        workers: workers,
-      )
-      
-      // Start first batch
-      let updated_state = start_batch(initial_state)
-      actor.continue(updated_state)
+      ))
     }
     
     WorkResult(results) -> {
@@ -157,39 +120,17 @@ pub fn boss_handler(
     WorkerFinished -> {
       let completed = state.workers_completed + 1
       
+      // Fix: Compare against total_work_units (number of work ranges), not workers
       case completed >= state.total_work_units {
         True -> {
-          // Current batch completed
-          case state.current_batch >= state.total_batches {
-            True -> {
-              // All batches completed - output results and stop
-              state.all_results
-              |> list.each(fn(x) { io.println(int.to_string(x)) })
-              
-              io.println("RESULTS FOUND: " <> int.to_string(list.length(state.all_results)))
-              
-              // Stop all workers
-              list.each(state.workers, fn(worker) {
-                process.send(worker, Stop)
-              })
-              
-              actor.stop()
-            }
-            False -> {
-              // Start next batch
-              io.println("Batch " <> int.to_string(state.current_batch) <> " completed. Starting batch " <> int.to_string(state.current_batch + 1))
-              
-              let next_state = BossState(
-                ..state,
-                current_batch: state.current_batch + 1,
-                workers_completed: 0,
-                total_work_units: 0,
-              )
-              
-              let updated_state = start_batch(next_state)
-              actor.continue(updated_state)
-            }
-          }
+          // All work completed - output results and stop
+          state.all_results
+          |> list.each(fn(x) { io.println(int.to_string(x)) })
+          
+          io.println("RESULTS FOUND: " <> int.to_string(list.length(state.all_results)))
+          
+          // Stop the actor
+          actor.stop()
         }
         False -> {
           actor.continue(BossState(
@@ -199,71 +140,21 @@ pub fn boss_handler(
         }
       }
     }
-    
-    BatchComplete(_batch_id) -> {
-      actor.continue(state)
-    }
   }
 }
 
-// Create all worker actors upfront
-fn create_workers(num_workers: Int) -> List(Subject(WorkerMessage)) {
-  list.range(1, num_workers)
-  |> list.map(fn(_) {
-    case actor.new(Nil) |> actor.on_message(worker_handler) |> actor.start {
-      Ok(started_actor) -> Ok(started_actor.data)
-      Error(_) -> Error("Failed to create worker")
-    }
-  })
-  |> result.values
-}
-
-// Start processing a batch
-fn start_batch(state: BossState) -> BossState {
-  let x = state.current_batch - 1
-  let batch_start = x * state.batch_size + 1
-  let batch_end = int.min(state.current_batch * state.batch_size, state.n)
-  
-  // Calculate optimal work unit size for high parallelism
-  // Smaller work units = better load balancing across 1500 workers
-  let available_workers = list.length(state.workers)
-  let batch_work = batch_end - batch_start + 1
-  let y = available_workers * 4
-  let work_unit_size = int.max(1, batch_work / y)  // 4x work units per worker for better distribution
-  
-  // Create work ranges for this batch
-  let work_ranges = create_work_ranges(batch_start, batch_end, work_unit_size)
-  let total_units = list.length(work_ranges)
-  
-  io.println("Batch " <> int.to_string(state.current_batch) <> ": processing " <> int.to_string(batch_start) <> " to " <> int.to_string(batch_end))
-  io.println("Work units: " <> int.to_string(total_units) <> ", unit size: " <> int.to_string(work_unit_size))
-  
-  // Distribute work among workers
-  assign_work_to_workers(state.workers, work_ranges, state.k, state.self_subject)
-  
-  BossState(
-    ..state,
-    workers_completed: 0,
-    total_work_units: total_units,
-  )
-}
-
-// Create work ranges for distribution - optimized for many small units
+// Create work ranges for distribution
 pub fn create_work_ranges(start: Int, end: Int, unit_size: Int) -> List(#(Int, Int)) {
-  create_work_ranges_acc(start, end, unit_size, [])
-}
-
-fn create_work_ranges_acc(start: Int, end: Int, unit_size: Int, acc: List(#(Int, Int))) -> List(#(Int, Int)) {
   case start > end {
-    True -> list.reverse(acc)
+    True -> []
     False -> {
       let range_end = int.min(start + unit_size - 1, end)
-      create_work_ranges_acc(range_end + 1, end, unit_size, [#(start, range_end), ..acc])
+      [#(start, range_end), ..create_work_ranges(range_end + 1, end, unit_size)]
     }
   }
 }
 
-// Distribute work ranges to available workers - optimized round robin
+// Distribute work ranges to available workers
 pub fn assign_work_to_workers(
   workers: List(Subject(WorkerMessage)),
   work_ranges: List(#(Int, Int)),
@@ -325,13 +216,7 @@ pub fn main() {
             all_results: [],
             workers_completed: 0,
             total_work_units: 0,
-            self_subject: process.new_subject(),
-            current_batch: 0,
-            total_batches: 0,
-            batch_size: 1500,
-            n: n,
-            k: k,
-            workers: [],
+            self_subject: process.new_subject(), 
           )
           
           case actor.new(initial_state) |> actor.on_message(boss_handler) |> actor.start {
@@ -362,7 +247,7 @@ pub fn main() {
     _ -> {
       io.println("Usage: lukas <N> <k>")
       io.println("Where N is the upper bound and k is the sequence length")
-      io.println("Example: gleam run 1000000 24")
+      io.println("Example: gleam run 100 4")
     }
   }
 }
