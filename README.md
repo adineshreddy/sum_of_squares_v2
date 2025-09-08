@@ -60,10 +60,9 @@ gleam build
 gleam run 1000000 24
 
 
----
 
 
-## Performance Analysis
+### Performance Analysis
 
 The efficiency of the parallel processing model is highly dependent on the configuration of workers and the size of the work units they process. Through experimentation, we've optimized two key parameters to achieve a balance between maximizing parallelism and minimizing overhead.
 
