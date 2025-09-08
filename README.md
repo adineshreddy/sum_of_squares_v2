@@ -3,8 +3,11 @@
 **Distributed Operating Systems Principles - Fall 2025**
 
 ## Group Info:
-- Dinesh Reddy Ande - 58723541
-- Saaketh Balachendil - 86294284
+
+| Name | UFID |
+| :--- | :--- |
+| [Dinesh Reddy Ande](https://github.com/adineshreddy) | 58723541 |
+| [Saaketh Balachendil](https://github.com/saaketh-coder) | 86294284 |
 
 ## Problem Definition
 
