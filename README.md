@@ -59,7 +59,9 @@ gleam build
 # Example: Find sequences of length 24 in range 1-1000000
 gleam run 1000000 24
 
+
 ---
+
 
 ## Performance Analysis
 
