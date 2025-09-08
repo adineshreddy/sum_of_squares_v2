@@ -40,24 +40,24 @@ Our solution leverages Gleam's actor model to create a distributed, parallel com
 
 ### Installation
 ```bash
-# Clone the repository
+# Clone the repository and install dependencies
 git clone <repository-url>
 cd sum_of_consecutive_squares_v2
-
-# Install dependencies
 gleam deps download
 
 # Build the project
 gleam build
+```
 
-# The program requires two command-line arguments:
-# gleam run <N> <k>
-# Where:
-#   N = upper bound for starting positions (integer)
-#   k = length of consecutive integer sequences (integer)
+The program requires two command-line arguments: `gleam run <N> <k>`
+Where:
+- **N**: The upper bound for starting positions (integer)
+- **k**: The length of consecutive integer sequences (integer)
 
-# Example: Find sequences of length 24 in range 1-1000000
+Example: Find sequences of length 24 in range 1-1000000
+```bash
 gleam run 1000000 24
+```
 
 
 
