@@ -7,7 +7,6 @@ import gleam/result
 import argv
 import gleam/float
 
-// Message types for actor communication
 pub type WorkerMessage {
   WorkRequest(start: Int, end: Int, k: Int, boss: Subject(BossMessage))
   Stop
@@ -19,7 +18,6 @@ pub type BossMessage {
   StartComputation(n: Int, k: Int, reply_with: Subject(BossMessage))
 }
 
-// State types
 pub type BossState {
   BossState(
     all_results: List(Int),
@@ -29,7 +27,7 @@ pub type BossState {
   )
 }
 
-// Perfect square detection
+// Perfect square check
 pub fn is_perfect_square(n: Int) -> Bool {
   case int.square_root(n) {
     Ok(root) -> {
@@ -53,19 +51,17 @@ pub fn is_valid_sequence(start: Int, k: Int) -> Bool {
   is_perfect_square(sum)
 }
 
-// Worker actor that processes a range of starting positions
+// Worker actor that processes a range of numbers
 pub fn worker_handler(
   _state: Nil,
   message: WorkerMessage,
 ) -> actor.Next(Nil, WorkerMessage) {
   case message {
     WorkRequest(start, end, k, boss) -> {
-      // Process the range and find valid sequences
       let results = 
         list.range(start, end)
         |> list.filter(fn(i) { is_valid_sequence(i, k) })
       
-      // Send results back to boss
       process.send(boss, WorkResult(results))
       process.send(boss, WorkerFinished)
       actor.continue(Nil)
@@ -81,14 +77,12 @@ pub fn boss_handler(
 ) -> actor.Next(BossState, BossMessage) {
   case message {
     StartComputation(n, k, reply_with) -> {
-      let num_workers = 8  // Parallel workers
-      let work_unit_size = int.max(100, n / 50)  // Dynamic work unit sizing
+      let num_workers = 8 
+      let work_unit_size = int.max(100, n / 50)
       
-      // Create work ranges
       let work_ranges = create_work_ranges(1, n, work_unit_size)
       let total_units = list.length(work_ranges)
       
-      // Start worker actors
       let workers = list.range(1, num_workers)
         |> list.map(fn(_) {
           case actor.new(Nil) |> actor.on_message(worker_handler) |> actor.start {
@@ -96,9 +90,8 @@ pub fn boss_handler(
             Error(e) -> Error(e)
           }
         })
-        |> result.values  // Keep only successful ones
+        |> result.values
       
-      // Distribute work among workers - use the reply_with subject
       assign_work_to_workers(workers, work_ranges, k, reply_with)
       
       actor.continue(BossState(
@@ -122,13 +115,11 @@ pub fn boss_handler(
       
       case completed >= state.total_work_units {
         True -> {
-          // All work completed - output results and stop
           state.all_results
           |> list.each(fn(x) { io.println(int.to_string(x)) })
           
           io.println("RESULTS FOUND: " <> int.to_string(list.length(state.all_results)))
           
-          // Stop the actor
           actor.stop()
         }
         False -> {
@@ -190,7 +181,6 @@ pub fn assign_work_round_robin(
           )
         }
         Error(_) -> {
-          // Skip this range if worker not found
           assign_work_round_robin(
             workers, 
             remaining_ranges, 
@@ -205,12 +195,10 @@ pub fn assign_work_round_robin(
 }
 
 pub fn main() {
-  // Parse command line arguments using argv
   case argv.load().arguments {
     [n_str, k_str] -> {
       case int.parse(n_str), int.parse(k_str) {
         Ok(n), Ok(k) -> {
-          // Start the boss actor system
           let initial_state = BossState(
             all_results: [],
             workers_completed: 0,
@@ -223,14 +211,11 @@ pub fn main() {
               let boss_subject = boss_actor.data
               process.send(boss_subject, StartComputation(n, k, boss_subject))
               
-              // Monitor the boss actor and wait for it to terminate
-              let _monitor = process.monitor(boss_actor.pid)
               let selector = process.new_selector()
                 |> process.select_monitors(fn(down) { down })
               
-              // Wait for boss to finish
               case process.selector_receive_forever(selector) {
-                _ -> Nil  // Boss actor has terminated, program can exit
+                _ -> Nil
               }
             }
             Error(_) -> {
