@@ -120,7 +120,6 @@ pub fn boss_handler(
     WorkerFinished -> {
       let completed = state.workers_completed + 1
       
-      // Fix: Compare against total_work_units (number of work ranges), not workers
       case completed >= state.total_work_units {
         True -> {
           // All work completed - output results and stop
