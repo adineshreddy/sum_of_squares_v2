@@ -45,13 +45,12 @@ pub fn sum_of_consecutive_squares(start: Int, k: Int) -> Int {
   |> list.fold(0, int.add)
 }
 
-// Check if sequence starting at 'start' with length 'k' gives perfect square
 pub fn is_valid_sequence(start: Int, k: Int) -> Bool {
   let sum = sum_of_consecutive_squares(start, k)
   is_perfect_square(sum)
 }
 
-// Worker actor that processes a range of numbers
+// Worker actor that processes a range of starting positions
 pub fn worker_handler(
   _state: Nil,
   message: WorkerMessage,
@@ -77,8 +76,8 @@ pub fn boss_handler(
 ) -> actor.Next(BossState, BossMessage) {
   case message {
     StartComputation(n, k, reply_with) -> {
-      let num_workers = 8 
-      let work_unit_size = int.max(100, n / 50)
+      let num_workers = 8  
+      let work_unit_size = int.max(100, n / 50) 
       
       let work_ranges = create_work_ranges(1, n, work_unit_size)
       let total_units = list.length(work_ranges)
@@ -90,7 +89,7 @@ pub fn boss_handler(
             Error(e) -> Error(e)
           }
         })
-        |> result.values
+        |> result.values 
       
       assign_work_to_workers(workers, work_ranges, k, reply_with)
       
@@ -133,7 +132,6 @@ pub fn boss_handler(
   }
 }
 
-// Create work ranges for distribution
 pub fn create_work_ranges(start: Int, end: Int, unit_size: Int) -> List(#(Int, Int)) {
   case start > end {
     True -> []
@@ -144,7 +142,6 @@ pub fn create_work_ranges(start: Int, end: Int, unit_size: Int) -> List(#(Int, I
   }
 }
 
-// Distribute work ranges to available workers
 pub fn assign_work_to_workers(
   workers: List(Subject(WorkerMessage)),
   work_ranges: List(#(Int, Int)),
@@ -168,7 +165,6 @@ pub fn assign_work_round_robin(
       let worker_count = list.length(workers)
       let current_worker_idx = worker_index % worker_count
       
-      // Get worker at current index
       case list.drop(workers, current_worker_idx) |> list.first {
         Ok(worker) -> {
           process.send(worker, WorkRequest(start, end, k, boss))
@@ -211,6 +207,7 @@ pub fn main() {
               let boss_subject = boss_actor.data
               process.send(boss_subject, StartComputation(n, k, boss_subject))
               
+              let _monitor = process.monitor(boss_actor.pid)
               let selector = process.new_selector()
                 |> process.select_monitors(fn(down) { down })
               
